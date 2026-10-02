@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Hewan {
+  id            Int    @id @default(autoincrement())
+  kode          String @unique
+  nama          String
+  harga         Int
+  bobotEstimasi Float
+  createdAt     String
+  slots         Slot[]
+
+  @@map("hewan")
+}
+
+model Slot {
+  id              Int     @id @default(autoincrement())
+  hewanId         Int
+  nomorSlot       Int
+  namaPeserta     String?
+  telepon         String?
+  status          String  @default("tersedia") // tersedia | terklaim | lunas
+  jadwalSembelihId Int?
+  createdAt       String
+  hewan           Hewan           @relation(fields: [hewanId], references: [id], onDelete: Cascade)
+  jadwalSembelih  JadwalSembelih? @relation(fields: [jadwalSembelihId], references: [id])
+  cicilan         Cicilan[]
+  pembayaran      Pembayaran[]
+  kupon           Kupon?
+
+  @@unique([hewanId, nomorSlot])
+  @@map("slot")
+}
+
+model Cicilan {
+  id          Int     @id @default(autoincrement())
+  slotId      Int
+  terminKe    Int
+  jumlah      Int
+  jatuhTempo  String
+  status      String  @default("belum_lunas") // belum_lunas | lunas
+  dibayarPada String?
+  slot        Slot          @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  pembayaran  Pembayaran[]
+
+  @@unique([slotId, terminKe])
+  @@map("cicilan")
+}
+
+model Pembayaran {
+  id          Int    @id @default(autoincrement())
+  slotId      Int
+  cicilanId   Int?
+  jumlah      Int
+  tanggalBayar String
+  catatan     String?
+  slot        Slot     @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  cicilan     Cicilan? @relation(fields: [cicilanId], references: [id], onDelete: SetNull)
+
+  @@map("pembayaran")
+}
+
+model JadwalSembelih {
+  id        Int    @id @default(autoincrement())
+  tanggal   String
+  lokasi    String
+  kapasitas Int
+  createdAt String
+  slots     Slot[]
+
+  @@map("jadwal_sembelih")
+}
+
+model Kupon {
+  id         Int     @id @default(autoincrement())
+  slotId     Int     @unique
+  kode       String  @unique
+  status     String  @default("aktif") // aktif | terpakai
+  dipakaiPada String?
+  slot       Slot    @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  @@map("kupon")
+}
+
+model Penerima {
+  id          Int     @id @default(autoincrement())
+  nama        String
+  alamat      String?
+  jumlahPaket Int
+  status      String  @default("belum_diserahkan") // belum_diserahkan | diserahkan
+  tanggalSerah String?
+  createdAt   String
+
+  @@map("penerima")
+}

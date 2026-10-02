@@ -25,8 +25,11 @@ QR, dan panitia mencatat distribusi daging ke penerima (mustahik).
 ### F2 — Klaim slot (ATOMIK)
 - POST /api/hewan/[id]/slot body `{namaPeserta, telepon}` mengambil slot tersedia
   pertama (nomor terkecil).
-- **Atomik**: di dalam transaksi Prisma, `updateMany` dengan
-  `where {id, status: "tersedia"}`; jika jumlah row terpengaruh 0 → 409 (penuh).
+- **Atomik** (tanpa interactive transaction): loop nomor slot 1..7, tiap langkah
+  `updateMany` single-statement dengan `where {hewanId, nomorSlot, status: "tersedia"}`;
+  affected-row 1 berarti menang, 0 berarti kalah race dan lanjut ke nomor berikut.
+  Jika semua 0 → 409 (penuh). Interactive `prisma.$transaction` tidak dipakai
+  karena tidak tahan konkurensi di SQLite.
 - Slot ke-8 pasti 409. Diuji dengan 10 request paralel → tepat 7 sukses, 3 gagal 409.
 - Saat slot diklaim: dibuatkan 3 termin cicilan (masing-masing = harga/7/3, pembulatan
   dibebankan ke termin terakhir agar total pas) dan 1 kupon QR (kode unik, status `aktif`).
@@ -70,7 +73,7 @@ QR, dan panitia mencatat distribusi daging ke penerima (mustahik).
 - `/hewan` daftar hewan, tambah hewan.
 - `/hewan/[id]` detail hewan: 7 slot (klik slot tersedia → form klaim), daftar peserta,
   status cicilan per slot, ikat ke jadwal sembelih, kupon per slot.
-- `/cicilan?slot=<id>` termin + bayar + riwayat.
+- `/cicilan/[slotId]` termin + bayar + riwayat.
 - `/jadwal` daftar & tambah jadwal sembelih.
 - `/scan` halaman scan kupon: input kode manual → tombol "Tandai diambil" (+ hasil).
 - `/distribusi` daftar penerima, tambah penerima, tandai diserahkan, laporan.

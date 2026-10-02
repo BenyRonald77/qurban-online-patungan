@@ -5,7 +5,8 @@ import { today } from "@/lib/format";
 /**
  * Catat pembayaran cicilan. Pembayaran sebagian diperbolehkan; termin menjadi
  * lunas saat total bayar >= jumlah termin. Penandaan lunas dilakukan atomik
- * dengan updateMany where {id, status: "belum_lunas"}.
+ * dengan conditional updateMany where {id, status: "belum_lunas"} + cek row
+ * terpengaruh — tanpa interactive transaction (tidak tahan konkurensi di SQLite).
  */
 export async function POST(
   req: NextRequest,
@@ -31,42 +32,45 @@ export async function POST(
   if (cicilan.status === "lunas")
     return NextResponse.json({ error: "termin ini sudah lunas" }, { status: 409 });
 
-  const hasil = await prisma.$transaction(async (tx) => {
-    const bayar = await tx.pembayaran.create({
-      data: {
-        slotId: cicilan.slotId,
-        cicilanId: cicilan.id,
-        jumlah: Math.round(jumlah),
-        tanggalBayar,
-        catatan,
-      },
-    });
-    const agg = await tx.pembayaran.aggregate({
-      where: { cicilanId: cicilan.id },
-      _sum: { jumlah: true },
-    });
-    const total = agg._sum.jumlah ?? 0;
-    let terminLunas = false;
-    if (total >= cicilan.jumlah) {
-      const upd = await tx.cicilan.updateMany({
-        where: { id: cicilan.id, status: "belum_lunas" },
-        data: { status: "lunas", dibayarPada: tanggalBayar },
-      });
-      terminLunas = upd.count > 0;
-    }
-    if (terminLunas) {
-      const sisa = await tx.cicilan.count({
-        where: { slotId: cicilan.slotId, status: "belum_lunas" },
-      });
-      if (sisa === 0) {
-        await tx.slot.update({
-          where: { id: cicilan.slotId },
-          data: { status: "lunas" },
-        });
-      }
-    }
-    return { pembayaran: bayar, totalBayarTermin: total, terminLunas };
+  const bayar = await prisma.pembayaran.create({
+    data: {
+      slotId: cicilan.slotId,
+      cicilanId: cicilan.id,
+      jumlah: Math.round(jumlah),
+      tanggalBayar,
+      catatan,
+    },
   });
 
-  return NextResponse.json(hasil, { status: 201 });
+  const agg = await prisma.pembayaran.aggregate({
+    where: { cicilanId: cicilan.id },
+    _sum: { jumlah: true },
+  });
+  const total = agg._sum.jumlah ?? 0;
+
+  let terminLunas = false;
+  if (total >= cicilan.jumlah) {
+    const upd = await prisma.cicilan.updateMany({
+      where: { id: cicilan.id, status: "belum_lunas" },
+      data: { status: "lunas", dibayarPada: tanggalBayar },
+    });
+    terminLunas = upd.count === 1;
+  }
+
+  if (terminLunas) {
+    const sisa = await prisma.cicilan.count({
+      where: { slotId: cicilan.slotId, status: "belum_lunas" },
+    });
+    if (sisa === 0) {
+      await prisma.slot.update({
+        where: { id: cicilan.slotId },
+        data: { status: "lunas" },
+      });
+    }
+  }
+
+  return NextResponse.json(
+    { pembayaran: bayar, totalBayarTermin: total, terminLunas },
+    { status: 201 }
+  );
 }

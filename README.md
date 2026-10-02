@@ -38,7 +38,7 @@ Buka http://localhost:3000
 - `/hewan` — daftar hewan, tambah hewan baru.
 - `/hewan/[id]` — detail hewan: 7 slot (klik slot tersedia untuk klaim), daftar
   peserta, status cicilan, ikat slot ke jadwal sembelih, kupon QR per slot.
-- `/cicilan?slot=<id>` — 3 termin cicilan, catat pembayaran, riwayat.
+- `/cicilan/[slotId]` — 3 termin cicilan, catat pembayaran, riwayat.
 - `/jadwal` — jadwal penyembelihan (tanggal, lokasi, kapasitas).
 - `/scan` — scan kupon QR: masukkan kode, tandai daging diambil.
 - `/distribusi` — penerima daging, tandai diserahkan, laporan distribusi.
@@ -57,6 +57,8 @@ Buka http://localhost:3000
 - `POST /api/penerima/[id]/serahkan` — tandai paket diserahkan.
 - `GET /api/laporan` — ringkasan distribusi.
 
-Aturan atomicity: klaim slot, pelunasan termin, dan scan kupon memakai
-`updateMany` dengan filter status di dalam transaksi; request bersamaan tidak
-bisa double-claim (409 untuk yang kalah).
+Aturan atomicity: klaim slot memakai conditional `updateMany` single-statement
+per nomor slot (`where {hewanId, nomorSlot, status: "tersedia"}`) lalu cek
+jumlah row terpengaruh; 0 berarti kalah race. Penandaan termin lunas dan scan
+kupon memakai pola yang sama. Interactive `prisma.$transaction` TIDAK dipakai
+untuk jalur konkurensi karena tidak tahan race pada SQLite (timeout massal).

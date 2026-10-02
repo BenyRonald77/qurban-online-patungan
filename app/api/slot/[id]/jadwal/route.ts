@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 
 /**
  * Ikat slot ke jadwal sembelih. Kapasitas jadwal dihitung per HEWAN unik
- * (satu sapi disembelih sekali). Pengecekan kapasitas dilakukan di dalam
- * transaksi; jika penuh -> 409.
+ * (satu sapi disembelih sekali). Tanpa interactive transaction (tidak tahan
+ * konkurensi di SQLite); pengikatan slot itu sendiri adalah single update.
  */
 export async function POST(
   req: NextRequest,
@@ -28,28 +28,22 @@ export async function POST(
   if (!jadwal)
     return NextResponse.json({ error: "jadwal tidak ditemukan" }, { status: 404 });
 
-  try {
-    const hasil = await prisma.$transaction(async (tx) => {
-      const terikat = await tx.slot.findMany({
-        where: { jadwalSembelihId: jadwalId },
-        select: { hewanId: true },
-      });
-      const hewanUnik = new Set(terikat.map((s) => s.hewanId));
-      if (!hewanUnik.has(slot.hewanId) && hewanUnik.size >= jadwal.kapasitas) {
-        const err = new Error("kapasitas jadwal penuh") as Error & { code?: string };
-        err.code = "JADWAL_PENUH";
-        throw err;
-      }
-      return tx.slot.update({
-        where: { id: slotId },
-        data: { jadwalSembelihId: jadwalId },
-        include: { jadwalSembelih: true },
-      });
-    });
-    return NextResponse.json(hasil);
-  } catch (e) {
-    if ((e as Error & { code?: string }).code === "JADWAL_PENUH")
-      return NextResponse.json({ error: "kapasitas jadwal sembelih sudah penuh" }, { status: 409 });
-    throw e;
+  const terikat = await prisma.slot.findMany({
+    where: { jadwalSembelihId: jadwalId },
+    select: { hewanId: true },
+  });
+  const hewanUnik = new Set(terikat.map((s) => s.hewanId));
+  if (!hewanUnik.has(slot.hewanId) && hewanUnik.size >= jadwal.kapasitas) {
+    return NextResponse.json(
+      { error: "kapasitas jadwal sembelih sudah penuh" },
+      { status: 409 }
+    );
   }
+
+  const hasil = await prisma.slot.update({
+    where: { id: slotId },
+    data: { jadwalSembelihId: jadwalId },
+    include: { jadwalSembelih: true },
+  });
+  return NextResponse.json(hasil);
 }

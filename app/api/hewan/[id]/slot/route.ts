@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { bagiTermin, jatuhTempoTermin, kodeKupon } from "@/lib/qurban";
+import { bagiTermin, jatuhTempoTermin, kodeKupon, withLock } from "@/lib/qurban";
 
 /**
  * Klaim slot patungan secara ATOMIK.
  * Mengambil slot tersedia bernomor terkecil, lalu updateMany dengan
  * where {id, status: "tersedia"} di dalam transaksi. Jika row terpengaruh 0,
  * berarti slot sudah direbut request lain -> 409.
+ * withLock dipakai karena SQLite single-writer: transaksi interaktif yang
+ * berjalan bersamaan akan timeout di level konektor.
  */
 export async function POST(
   req: NextRequest,
@@ -28,7 +30,8 @@ export async function POST(
 
   const now = new Date().toISOString();
   try {
-    const hasil = await prisma.$transaction(async (tx) => {
+    const hasil = await withLock(`klaim-hewan-${hewanId}`, () =>
+      prisma.$transaction(async (tx) => {
       const kandidat = await tx.slot.findFirst({
         where: { hewanId, status: "tersedia" },
         orderBy: { nomorSlot: "asc" },
@@ -67,7 +70,8 @@ export async function POST(
         where: { id: kandidat.id },
         include: { cicilan: { orderBy: { terminKe: "asc" } }, kupon: true },
       });
-    });
+      })
+    );
     return NextResponse.json(hasil, { status: 201 });
   } catch (e) {
     if ((e as Error & { code?: string }).code === "SLOT_PENUH")

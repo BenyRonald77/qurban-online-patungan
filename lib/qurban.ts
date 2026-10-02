@@ -37,3 +37,30 @@ export function isTanggalValid(t: string): boolean {
   const d = new Date(t + "T00:00:00");
   return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
 }
+
+/**
+ * Mutex sederhana per kunci (in-process). Dipakai untuk men-serialisasi
+ * operasi tulis yang memakai transaksi interaktif di SQLite, karena SQLite
+ * hanya punya satu writer: N transaksi interaktif bersamaan akan timeout.
+ * Jaminan "tidak double-claim" tetap dipegang oleh updateMany dengan
+ * where status + pengecekan jumlah row terpengaruh (bekerja lintas proses).
+ */
+const locks = new Map<string, Promise<void>>();
+export async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(key);
+  let release!: () => void;
+  const cur = new Promise<void>((res) => {
+    release = res;
+  });
+  locks.set(key, (prev ?? Promise.resolve()).then(
+    () => cur,
+    () => cur
+  ));
+  if (prev) await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (locks.get(key)) locks.delete(key);
+  }
+}
